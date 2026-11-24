@@ -135,6 +135,9 @@ jobs:
   jar:
     name: Jar with all native libraries
     needs: native
+    # Production runs on Linux. Thus, build the jar also if the macOS job did not run, for example because
+    # GitHub had no macOS arm64 runner. utils/add-macos-library.sh adds a locally built macOS library.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the sources
@@ -154,16 +157,32 @@ jobs:
           path: target/cmake-build/lib
           merge-multiple: true
 
+      - name: Check the native libraries
+        run: |
+          find target/cmake-build/lib -type f | sort
+          for lib in linux/x86_64/glibc/libaws-crt-jni.so linux/armv8/glibc/libaws-crt-jni.so; do
+            if [ ! -f "target/cmake-build/lib/$lib" ]; then
+              echo "::error::The Linux library $lib is missing."
+              exit 1
+            fi
+          done
+          if [ ! -f target/cmake-build/lib/osx/armv8/cruntime/libaws-crt-jni.dylib ]; then
+            echo "::warning::The jar has no macOS arm64 library, because the macOS job did not run. Use utils/add-macos-library.sh to add it."
+          fi
+
       - name: Set the version
         run: mvn -B versions:set -DnewVersion="$CRT_VERSION" -DgenerateBackupPoms=false
 
       - name: Build the jar
         run: mvn -B package -DskipTests -Dshared-lib.skip=true
 
-      - name: Check that the jar contains all native libraries
+      - name: Check that the jar contains the native libraries
         run: |
-          unzip -l "target/aws-crt-$CRT_VERSION.jar" | grep -E 'libaws-crt-jni\.(so|dylib)$'
-          test "$(unzip -l "target/aws-crt-$CRT_VERSION.jar" | grep -c -E 'libaws-crt-jni\.(so|dylib)$')" -eq 3
+          listing=$(unzip -l "target/aws-crt-$CRT_VERSION.jar")
+          echo "$listing" | grep -E 'libaws-crt-jni\.(so|dylib)$'
+          for lib in $(cd target/cmake-build/lib && find . -type f -name 'libaws-crt-jni.*' | sed 's|^\./||'); do
+            echo "$listing" | grep -q -F "$lib"
+          done
 
       - name: Upload the jar
         uses: actions/upload-artifact@v7
