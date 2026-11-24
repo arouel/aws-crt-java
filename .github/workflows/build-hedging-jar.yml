@@ -1,0 +1,147 @@
+name: Build hedging jar
+
+# Builds an aws-crt jar from this branch, which uses aws-c-s3 with GET hedging
+# (awslabs/aws-c-s3#736). The upstream CI workflows need AWS credentials of the
+# CRT team, so they cannot run on a fork. This workflow uses the build commands
+# of codebuild/cd/ and needs no AWS access.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - get-object-hedging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CRT_VERSION: 0.50.1-hedging.1
+
+jobs:
+  native:
+    name: Native library (${{ matrix.classifier }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            classifier: linux-x86_64
+            maven-profile: ""
+          - runner: ubuntu-24.04-arm
+            classifier: linux-aarch_64
+            maven-profile: ""
+          - runner: macos-15
+            classifier: osx-aarch_64
+            maven-profile: -P mac-arm64
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up the JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 17
+          cache: maven
+
+      - name: Install the build tools
+        run: |
+          missing=()
+          command -v mvn > /dev/null || missing+=(maven)
+          command -v cmake > /dev/null || missing+=(cmake)
+          if [ ${#missing[@]} -gt 0 ]; then
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              sudo apt-get update
+              sudo apt-get install -y "${missing[@]}"
+            else
+              brew install "${missing[@]}"
+            fi
+          fi
+          mvn -v
+          cmake --version
+
+      - name: Set the version
+        run: mvn -B versions:set -DnewVersion="$CRT_VERSION" -DgenerateBackupPoms=false
+
+      - name: Build the native library and the platform jar
+        run: mvn -B package -DskipTests -Dcrt.classifier=${{ matrix.classifier }} ${{ matrix.maven-profile }}
+
+      - name: Check that the native library contains GET hedging
+        run: |
+          libs=$(find target/cmake-build/lib -type f \( -name '*.so' -o -name '*.dylib' \))
+          echo "$libs"
+          test "$(echo "$libs" | wc -l)" -eq 1
+          grep -q -a AWS_CRT_S3_GET_OBJECT_HEDGING $libs
+
+      - name: Load the native library
+        run: |
+          cat > "$RUNNER_TEMP/Smoke.java" <<'EOF'
+          import software.amazon.awssdk.crt.CRT;
+
+          public class Smoke {
+              public static void main(String[] args) {
+                  CRT.checkLoaded();
+                  System.out.println(CRT.getOSIdentifier() + "-" + CRT.getArchIdentifier() + ": " + CRT.awsErrorName(2092));
+              }
+          }
+          EOF
+          java -cp "target/aws-crt-$CRT_VERSION-${{ matrix.classifier }}.jar" "$RUNNER_TEMP/Smoke.java"
+
+      - name: Upload the native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.classifier }}
+          path: |
+            target/cmake-build/lib/**/*.so
+            target/cmake-build/lib/**/*.dylib
+          if-no-files-found: error
+          retention-days: 7
+
+  jar:
+    name: Jar with all native libraries
+    needs: native
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the sources
+        uses: actions/checkout@v4
+
+      - name: Set up the JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 17
+          cache: maven
+
+      - name: Download the native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: target/cmake-build/lib
+          merge-multiple: true
+
+      - name: Set the version
+        run: mvn -B versions:set -DnewVersion="$CRT_VERSION" -DgenerateBackupPoms=false
+
+      - name: Build the jar
+        run: mvn -B package -DskipTests -Dshared-lib.skip=true
+
+      - name: Check that the jar contains all native libraries
+        run: |
+          unzip -l "target/aws-crt-$CRT_VERSION.jar" | grep -E 'libaws-crt-jni\.(so|dylib)$'
+          test "$(unzip -l "target/aws-crt-$CRT_VERSION.jar" | grep -c -E 'libaws-crt-jni\.(so|dylib)$')" -eq 3
+
+      - name: Upload the jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-crt-${{ env.CRT_VERSION }}
+          path: |
+            target/aws-crt-${{ env.CRT_VERSION }}.jar
+            pom.xml
+          if-no-files-found: error
