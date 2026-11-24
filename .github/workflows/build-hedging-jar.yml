@@ -136,7 +136,7 @@ jobs:
     name: Jar with all native libraries
     needs: native
     # Production runs on Linux. Thus, build the jar also if the macOS job did not run, for example because
-    # GitHub had no macOS arm64 runner. utils/add-macos-library.sh adds a locally built macOS library.
+    # GitHub had no macOS arm64 runner. utils/build-hedging-jar.sh builds the full jar on a Mac.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
@@ -167,7 +167,7 @@ jobs:
             fi
           done
           if [ ! -f target/cmake-build/lib/osx/armv8/cruntime/libaws-crt-jni.dylib ]; then
-            echo "::warning::The jar has no macOS arm64 library, because the macOS job did not run. Use utils/add-macos-library.sh to add it."
+            echo "::warning::The jar has no macOS arm64 library, because the macOS job did not run. Use utils/build-hedging-jar.sh on a Mac to build the full jar."
           fi
 
       - name: Set the version
@@ -179,9 +179,9 @@ jobs:
       - name: Check that the jar contains the native libraries
         run: |
           listing=$(unzip -l "target/aws-crt-$CRT_VERSION.jar")
-          echo "$listing" | grep -E 'libaws-crt-jni\.(so|dylib)$'
+          grep -E 'libaws-crt-jni\.(so|dylib)$' <<< "$listing"
           for lib in $(cd target/cmake-build/lib && find . -type f -name 'libaws-crt-jni.*' | sed 's|^\./||'); do
-            echo "$listing" | grep -q -F "$lib"
+            grep -q -F "$lib" <<< "$listing"
           done
 
       - name: Upload the jar
