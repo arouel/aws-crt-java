@@ -4,6 +4,10 @@ name: Build hedging jar
 # (awslabs/aws-c-s3#736). The upstream CI workflows need AWS credentials of the
 # CRT team, so they cannot run on a fork. This workflow uses the build commands
 # of codebuild/cd/ and needs no AWS access.
+#
+# The workflow builds only the Linux libraries, because GitHub gave it no macOS
+# arm64 runner. utils/build-hedging-jar.sh builds the jar with the Linux
+# libraries of a run and a macOS arm64 library on a Mac.
 
 on:
   workflow_dispatch:
@@ -31,13 +35,8 @@ jobs:
         include:
           - runner: ubuntu-24.04
             classifier: linux-x86_64
-            maven-profile: ""
           - runner: ubuntu-24.04-arm
             classifier: linux-aarch_64
-            maven-profile: ""
-          - runner: macos-26
-            classifier: osx-aarch_64
-            maven-profile: -P mac-arm64
     steps:
       - name: Check out the sources
         uses: actions/checkout@v7
@@ -62,12 +61,8 @@ jobs:
           command -v mvn > /dev/null || missing+=(maven)
           command -v cmake > /dev/null || missing+=(cmake)
           if [ ${#missing[@]} -gt 0 ]; then
-            if [ "$RUNNER_OS" = "Linux" ]; then
-              sudo apt-get update
-              sudo apt-get install -y "${missing[@]}"
-            else
-              brew install "${missing[@]}"
-            fi
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
           fi
           mvn -v
           cmake --version
@@ -76,11 +71,11 @@ jobs:
         run: mvn -B versions:set -DnewVersion="$CRT_VERSION" -DgenerateBackupPoms=false
 
       - name: Build the native library and the platform jar
-        run: mvn -B package -DskipTests -Dcrt.classifier=${{ matrix.classifier }} ${{ matrix.maven-profile }}
+        run: mvn -B package -DskipTests -Dcrt.classifier=${{ matrix.classifier }}
 
       - name: Check that the native library contains GET hedging
         run: |
-          libs=$(find target/cmake-build/lib -type f \( -name '*.so' -o -name '*.dylib' \))
+          libs=$(find target/cmake-build/lib -type f -name '*.so')
           echo "$libs"
           test "$(echo "$libs" | wc -l)" -eq 1
           grep -q -a AWS_CRT_S3_GET_OBJECT_HEDGING $libs
@@ -126,18 +121,13 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.classifier }}
-          path: |
-            target/cmake-build/lib/**/*.so
-            target/cmake-build/lib/**/*.dylib
+          path: target/cmake-build/lib/**/*.so
           if-no-files-found: error
           retention-days: 7
 
   jar:
-    name: Jar with all native libraries
+    name: Jar with the Linux libraries
     needs: native
-    # Production runs on Linux. Thus, build the jar also if the macOS job did not run, for example because
-    # GitHub had no macOS arm64 runner. utils/build-hedging-jar.sh builds the full jar on a Mac.
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the sources
@@ -166,29 +156,31 @@ jobs:
               exit 1
             fi
           done
-          if [ ! -f target/cmake-build/lib/osx/armv8/cruntime/libaws-crt-jni.dylib ]; then
-            echo "::warning::The jar has no macOS arm64 library, because the macOS job did not run. Use utils/build-hedging-jar.sh on a Mac to build the full jar."
-          fi
 
       - name: Set the version
         run: mvn -B versions:set -DnewVersion="$CRT_VERSION" -DgenerateBackupPoms=false
 
-      - name: Build the jar
-        run: mvn -B package -DskipTests -Dshared-lib.skip=true
+      - name: Build the jar and the sources jar
+        run: >-
+          mvn -B package org.apache.maven.plugins:maven-source-plugin:3.4.0:jar-no-fork
+          -DskipTests -Dshared-lib.skip=true
 
-      - name: Check that the jar contains the native libraries
+      - name: Check the jar and the sources jar
         run: |
           listing=$(unzip -l "target/aws-crt-$CRT_VERSION.jar")
-          grep -E 'libaws-crt-jni\.(so|dylib)$' <<< "$listing"
-          for lib in $(cd target/cmake-build/lib && find . -type f -name 'libaws-crt-jni.*' | sed 's|^\./||'); do
+          grep -E 'libaws-crt-jni\.so$' <<< "$listing"
+          for lib in linux/x86_64/glibc/libaws-crt-jni.so linux/armv8/glibc/libaws-crt-jni.so; do
             grep -q -F "$lib" <<< "$listing"
           done
+          options_source=$(unzip -p "target/aws-crt-$CRT_VERSION-sources.jar" software/amazon/awssdk/crt/s3/S3ClientOptions.java)
+          grep -q withGetObjectHedging <<< "$options_source"
 
       - name: Upload the jar
         uses: actions/upload-artifact@v7
         with:
-          name: aws-crt-${{ env.CRT_VERSION }}
+          name: aws-crt-${{ env.CRT_VERSION }}-linux
           path: |
             target/aws-crt-${{ env.CRT_VERSION }}.jar
+            target/aws-crt-${{ env.CRT_VERSION }}-sources.jar
             pom.xml
           if-no-files-found: error

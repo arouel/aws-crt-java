@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Builds the aws-crt jar with GET hedging for Linux x86_64, Linux aarch64, and macOS arm64 on a Mac.
 #
-# The "Build hedging jar" workflow cannot always get a macOS arm64 runner. This script does not need one: it downloads
-# the Linux libraries that the workflow uploaded, builds the macOS arm64 library on this Mac, and packs all three into
-# one jar. The Linux libraries are available when the Linux jobs are complete, also while the macOS job still waits.
+# The "Build hedging jar" workflow builds only the Linux libraries, because GitHub gave it no macOS arm64 runner. This
+# script downloads the Linux libraries of a workflow run, builds the macOS arm64 library on this Mac, and packs all
+# three into one jar. The Linux libraries are available when the Linux jobs are complete.
 #
 # Run it on a Mac with Apple silicon, from the root of this repository, on the commit that the workflow built:
 #
 #   utils/build-hedging-jar.sh [RUN_ID]
 #
 # If you give no RUN_ID, the script uses the latest workflow run for the current commit. The result is in
-# target/hedging-jar/.
+# target/hedging-jar/: the jar, its sources jar, and its pom.xml.
 set -euo pipefail
 
 repo=${REPO:-arouel/aws-crt-java}
@@ -58,9 +58,9 @@ done
 mvn -B -q versions:set -DnewVersion="$version" -DgenerateBackupPoms=true
 trap 'mvn -B -q versions:revert; rm -rf "$download_dir"' EXIT
 
-echo "Building the macOS arm64 library and the jar of $commit"
+echo "Building the macOS arm64 library, the jar, and the sources jar of $commit"
 git submodule update --init
-mvn -B -q package -DskipTests -P mac-arm64
+mvn -B -q package org.apache.maven.plugins:maven-source-plugin:3.4.0:jar-no-fork -DskipTests -P mac-arm64
 
 jar=target/aws-crt-$version.jar
 # Read the listing from a variable. With pipefail, "unzip | grep -q" can fail when grep stops reading early.
@@ -90,11 +90,18 @@ public class Smoke {
 EOF
 java -cp "$jar" "$download_dir/Smoke.java"
 
+sources_jar=target/aws-crt-$version-sources.jar
+options_source=$(unzip -p "$sources_jar" software/amazon/awssdk/crt/s3/S3ClientOptions.java)
+if ! grep -q withGetObjectHedging <<< "$options_source"; then
+    echo "$sources_jar does not contain the sources of GET hedging." >&2
+    exit 1
+fi
+
 rm -rf "$out"
 mkdir -p "$out"
-cp "$jar" "$out/"
+cp "$jar" "$sources_jar" "$out/"
 cp pom.xml "$out/pom.xml"
 
-echo "Done: $out/aws-crt-$version.jar"
-echo "To install it in the local Maven repository:"
-echo "  mvn install:install-file -Dfile=$out/aws-crt-$version.jar -DpomFile=$out/pom.xml"
+echo "Done: $out/aws-crt-$version.jar and $out/aws-crt-$version-sources.jar"
+echo "To install them in the local Maven repository:"
+echo "  mvn install:install-file -Dfile=$out/aws-crt-$version.jar -Dsources=$out/aws-crt-$version-sources.jar -DpomFile=$out/pom.xml"
