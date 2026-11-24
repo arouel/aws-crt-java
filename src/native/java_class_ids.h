@@ -513,6 +513,7 @@ struct java_aws_s3_request_metrics {
     jfieldID stream_id_field_id;
     jfieldID error_code_field_id;
     jfieldID retry_attempt_field_id;
+    jfieldID first_byte_timeout_ms_field_id;
 };
 extern struct java_aws_s3_request_metrics s3_request_metrics_properties;
 

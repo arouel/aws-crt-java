@@ -194,7 +194,8 @@ public class S3Client extends CrtResource {
                     shouldStream,
                     diskThroughputGbps,
                     directIo,
-                    directBufferPool));
+                    directBufferPool,
+                    toNativeTribool(options.getGetObjectHedging())));
         } catch (RuntimeException | Error e) {
             // No native client means no shutdown callback: free the pool here.
             // close() is idempotent, so this is safe even if the native client
@@ -211,6 +212,14 @@ public class S3Client extends CrtResource {
         }
 
         addReferenceTo(options.getClientBootstrap());
+    }
+
+    /* The values of enum aws_tribool in aws-c-common: 0 is unset, 1 is false, 2 is true. */
+    private static int toNativeTribool(Boolean value) {
+        if (value == null) {
+            return 0;
+        }
+        return value ? 2 : 1;
     }
 
     private void onShutdownComplete() {
@@ -529,7 +538,8 @@ public class S3Client extends CrtResource {
             boolean shouldStream,
             double diskThroughputGbps,
             boolean directIo,
-            S3DirectBufferPool directByteBufferPool) throws CrtRuntimeException;
+            S3DirectBufferPool directByteBufferPool,
+            int getObjectHedging) throws CrtRuntimeException;
 
     private static native void s3ClientDestroy(long client);
 

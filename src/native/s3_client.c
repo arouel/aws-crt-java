@@ -360,7 +360,8 @@ JNIEXPORT jlong JNICALL Java_software_amazon_awssdk_crt_s3_S3Client_s3ClientNew(
     jboolean should_stream,
     jdouble disk_throughput_gbps,
     jboolean direct_io,
-    jobject jni_buffer_pool /* optional S3DirectBufferPool, may be NULL */) {
+    jobject jni_buffer_pool /* optional S3DirectBufferPool, may be NULL */,
+    jint jni_get_object_hedging) {
     (void)jni_class;
     aws_cache_jni_ids(env);
 
@@ -370,6 +371,11 @@ JNIEXPORT jlong JNICALL Java_software_amazon_awssdk_crt_s3_S3Client_s3ClientNew(
 
     if (!client_bootstrap) {
         aws_jni_throw_illegal_argument_exception(env, "Invalid Client Bootstrap");
+        return (jlong)NULL;
+    }
+
+    if (jni_get_object_hedging < 0 || jni_get_object_hedging > (jint)AWS_TRIBOOL_TRUE) {
+        aws_jni_throw_illegal_argument_exception(env, "Invalid GET hedging setting");
         return (jlong)NULL;
     }
 
@@ -483,6 +489,7 @@ JNIEXPORT jlong JNICALL Java_software_amazon_awssdk_crt_s3_S3Client_s3ClientNew(
         .fio_opts = fio_options_set ? &fio_opts : NULL,
         /* TODO: Force sequential delivery for java, until out of order pause/resume picked up from java sdk */
         .out_of_order_delivery = AWS_TRIBOOL_FALSE,
+        .get_object_hedging = (enum aws_tribool)jni_get_object_hedging,
     };
 
     struct aws_http_connection_monitoring_options monitoring_options;
@@ -1460,6 +1467,13 @@ static void s_on_s3_meta_request_telemetry_callback(
 
     uint32_t retry_attempt = aws_s3_request_metrics_get_retry_attempt(metrics);
     (*env)->SetIntField(env, metrics_object, s3_request_metrics_properties.retry_attempt_field_id, (jint)retry_attempt);
+
+    uint64_t first_byte_timeout_ms = aws_s3_request_metrics_get_first_byte_timeout_ms(metrics);
+    (*env)->SetLongField(
+        env,
+        metrics_object,
+        s3_request_metrics_properties.first_byte_timeout_ms_field_id,
+        (jlong)first_byte_timeout_ms);
 
     if (callback_data->java_s3_meta_request_response_handler_native_adapter != NULL) {
 

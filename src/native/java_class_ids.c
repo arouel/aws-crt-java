@@ -1134,6 +1134,10 @@ static void s_cache_s3_request_metrics(JNIEnv *env) {
 
     s3_request_metrics_properties.retry_attempt_field_id = (*env)->GetFieldID(env, cls, "retryAttempt", "I");
 
+    s3_request_metrics_properties.first_byte_timeout_ms_field_id =
+        (*env)->GetFieldID(env, cls, "firstByteTimeoutMs", "J");
+    AWS_FATAL_ASSERT(s3_request_metrics_properties.first_byte_timeout_ms_field_id);
+
     (*env)->DeleteLocalRef(env, cls);
 }
 

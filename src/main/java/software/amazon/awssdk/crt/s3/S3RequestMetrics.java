@@ -91,6 +91,7 @@ public class S3RequestMetrics {
     // Required: always available (default to 0)
     private int errorCode = 0;
     private int retryAttempt = 0;
+    private long firstByteTimeoutMs = 0;
 
     public long getApiCallDurationNs() throws CrtRuntimeException {
         if (this.s3RequestLastAttemptEndTimestampNs == -1) {
@@ -178,6 +179,17 @@ public class S3RequestMetrics {
     // Please use CRT.awsIsTransientError() to identify transient errors
     public int getErrorCode() {
         return this.errorCode;
+    }
+
+    /**
+     * @return the first-byte timeout of this attempt in milliseconds, or 0 if the attempt had no first-byte
+     * timeout. The UploadPart timeout and GET hedging (see {@link S3ClientOptions#withGetObjectHedging}) set
+     * it. An attempt that reached the timeout has the error code
+     * {@code AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT} (2092). For a GetObject attempt, this error code
+     * identifies a hedge.
+     */
+    public long getFirstByteTimeoutMs() {
+        return this.firstByteTimeoutMs;
     }
 
     public String getIpAddress() {

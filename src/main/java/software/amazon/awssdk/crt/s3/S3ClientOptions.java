@@ -84,6 +84,9 @@ public class S3ClientOptions {
     /** Optional direct buffer pool sizing; see {@link #withDirectBufferPoolOptions}. */
     private S3DirectBufferPoolOptions directBufferPoolOptions;
 
+    /** Optional. See {@link #withGetObjectHedging}. Null means not set. */
+    private Boolean getObjectHedging;
+
     public S3ClientOptions() {
         this.computeContentMd5 = false;
     }
@@ -416,6 +419,36 @@ public class S3ClientOptions {
      */
     public FileIoOptions getFileIoOptions() {
         return fileIoOptions;
+    }
+
+    /**
+     * Turns GET hedging on or off. A hedge cancels a part request of a {@code GET_OBJECT} meta request
+     * that gets no response before an adaptive first-byte deadline, and sends the request again at once
+     * on a new connection. The client calculates the deadline from the time to first byte of successful
+     * part requests, and a budget keeps the hedges below approximately 5% of the requests.
+     *
+     * A hedge does not wait for a backoff, does not use the retry quota, and does not count against the
+     * max retries. Hedging is always off if retries are off. Use
+     * {@link S3RequestMetrics#getFirstByteTimeoutMs()} and {@link S3RequestMetrics#getErrorCode()} to
+     * monitor the hedges.
+     *
+     * If not set, the {@code AWS_CRT_S3_GET_OBJECT_HEDGING} environment variable applies: the value
+     * {@code true} or {@code 1} turns hedging on. The default is off.
+     *
+     * @param getObjectHedging true to turn GET hedging on, false to turn it off, null to use the
+     *                         environment variable
+     * @return this
+     */
+    public S3ClientOptions withGetObjectHedging(Boolean getObjectHedging) {
+        this.getObjectHedging = getObjectHedging;
+        return this;
+    }
+
+    /**
+     * @return true or false if GET hedging was set, or null if not set
+     */
+    public Boolean getGetObjectHedging() {
+        return getObjectHedging;
     }
 
     /**
