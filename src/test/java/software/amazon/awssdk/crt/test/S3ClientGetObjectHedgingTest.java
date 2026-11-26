@@ -81,49 +81,6 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
     }
 
     @Test
-    public void testDefaultGetObjectHedgingAppliesToNewOptions() {
-        assertNull(S3ClientOptions.getDefaultGetObjectHedging());
-        S3ClientOptions before = new S3ClientOptions();
-        try {
-            S3ClientOptions.setDefaultGetObjectHedging(true);
-
-            assertEquals(Boolean.TRUE, new S3ClientOptions().getGetObjectHedging());
-            assertEquals(Boolean.FALSE, new S3ClientOptions().withGetObjectHedging(false).getGetObjectHedging());
-            assertNull(before.getGetObjectHedging());
-        } finally {
-            S3ClientOptions.setDefaultGetObjectHedging(null);
-        }
-        assertNull(new S3ClientOptions().getGetObjectHedging());
-    }
-
-    @Test
-    public void testDefaultGetObjectHedgingSendsSlowPartAgain() throws Exception {
-        URI endpoint = mockServerEndpoint();
-        S3Client client;
-        S3ClientOptions.setDefaultGetObjectHedging(true);
-        try {
-            client = createClient(null);
-        } finally {
-            S3ClientOptions.setDefaultGetObjectHedging(null);
-        }
-        try {
-            for (int i = 0; i < WARMUP_DOWNLOADS; i++) {
-                download(client, endpoint, FAST_PATH);
-            }
-
-            Download download = download(client, endpoint, SLOW_PART_PATH);
-
-            assertTrue("download took " + download.durationMs + " ms", download.durationMs < SLOW_ANSWER_MS);
-            long numHedges = download.attempts.stream()
-                    .filter(attempt -> attempt.getErrorCode() == AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT)
-                    .count();
-            assertEquals(1, numHedges);
-        } finally {
-            client.close();
-        }
-    }
-
-    @Test
     public void testGetObjectHedgingSendsSlowPartAgain() throws Exception {
         URI endpoint = mockServerEndpoint();
         try (S3Client client = createClient(true)) {
@@ -185,8 +142,7 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
                 firstByteTimeoutMs >= MIN_DEADLINE_MS && firstByteTimeoutMs <= MAX_DEADLINE_MS);
     }
 
-    /* A null getObjectHedging keeps the value that new options get. */
-    private static S3Client createClient(Boolean getObjectHedging) {
+    private static S3Client createClient(boolean getObjectHedging) {
         try (EventLoopGroup elg = new EventLoopGroup(0, 1);
                 HostResolver hostResolver = new HostResolver(elg);
                 ClientBootstrap clientBootstrap = new ClientBootstrap(elg, hostResolver);
@@ -198,10 +154,8 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
                     .withRegion(REGION)
                     .withClientBootstrap(clientBootstrap)
                     .withCredentialsProvider(credentialsProvider)
-                    .withPartSize(PART_SIZE);
-            if (getObjectHedging != null) {
-                options.withGetObjectHedging(getObjectHedging);
-            }
+                    .withPartSize(PART_SIZE)
+                    .withGetObjectHedging(getObjectHedging);
             return new S3Client(options);
         }
     }

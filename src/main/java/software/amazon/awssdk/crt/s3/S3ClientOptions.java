@@ -87,12 +87,8 @@ public class S3ClientOptions {
     /** Optional. See {@link #withGetObjectHedging}. Null means not set. */
     private Boolean getObjectHedging;
 
-    /* The value of getObjectHedging that new options get. See setDefaultGetObjectHedging. */
-    private static volatile Boolean defaultGetObjectHedging;
-
     public S3ClientOptions() {
         this.computeContentMd5 = false;
-        this.getObjectHedging = defaultGetObjectHedging;
     }
 
     public S3ClientOptions withRegion(String region) {
@@ -453,29 +449,6 @@ public class S3ClientOptions {
      */
     public Boolean getGetObjectHedging() {
         return getObjectHedging;
-    }
-
-    /**
-     * Sets the value of {@link #withGetObjectHedging} that new options get. Use it if a library creates the options
-     * for you, for example the CRT-based S3 client of the AWS SDK for Java ({@code S3AsyncClient.crtBuilder()}).
-     *
-     * The value applies to all options that are created after the call, in all threads. Options that exist already
-     * do not change, and {@link #withGetObjectHedging} still overrides the value for one options object. To set the
-     * value for only one client, set it, create the client, and then set the earlier value again. Do this while you
-     * hold a lock, if other threads can create clients at the same time.
-     *
-     * @param getObjectHedging true to turn GET hedging on, false to turn it off, null (the initial value) to use the
-     *                         environment variable
-     */
-    public static void setDefaultGetObjectHedging(Boolean getObjectHedging) {
-        defaultGetObjectHedging = getObjectHedging;
-    }
-
-    /**
-     * @return the value of {@link #withGetObjectHedging} that new options get, or null if not set
-     */
-    public static Boolean getDefaultGetObjectHedging() {
-        return defaultGetObjectHedging;
     }
 
     /**
