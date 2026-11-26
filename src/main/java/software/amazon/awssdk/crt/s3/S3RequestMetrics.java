@@ -185,8 +185,8 @@ public class S3RequestMetrics {
      * @return the first-byte timeout of this attempt in milliseconds, or 0 if the attempt had no first-byte
      * timeout. The UploadPart timeout and GET hedging (see {@link S3ClientOptions#withGetObjectHedging}) set
      * it. An attempt that reached the timeout has the error code
-     * {@code AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT} (2092). For a GetObject attempt, this error code
-     * identifies a hedge.
+     * {@code AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT} (2092). For UploadPart and GetObject attempts, this
+     * error code identifies a hedge, unless the meta request is already finishing, for example after a cancel.
      */
     public long getFirstByteTimeoutMs() {
         return this.firstByteTimeoutMs;

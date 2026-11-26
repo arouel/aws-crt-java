@@ -54,13 +54,17 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
     private static final long SLOW_ANSWER_MS = 3000;
 
     /*
-     * The warmup samples are fast, so the deadline starts at its minimum of 1 s. Each success then moves it a
+     * The warmup samples are fast, so the timeout starts at its minimum of 1 s. Each success then moves it a
      * little toward the mean plus 700 ms.
      */
     private static final long MAX_DEADLINE_MS = 1000;
     private static final long MIN_DEADLINE_MS = 900;
 
-    /* 3 downloads of 4 parts give 12 successes. The warmup needs 10. */
+    /*
+     * The warmup needs max(10, ideal connection count) successes. A target of 1 Gbps gives the minimum of 10
+     * connections. 3 downloads of 4 parts give 12 successes.
+     */
+    private static final double THROUGHPUT_TARGET_GBPS = 1.0;
     private static final int WARMUP_DOWNLOADS = 3;
 
     private static final class Download {
@@ -155,6 +159,7 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
                     .withClientBootstrap(clientBootstrap)
                     .withCredentialsProvider(credentialsProvider)
                     .withPartSize(PART_SIZE)
+                    .withThroughputTargetGbps(THROUGHPUT_TARGET_GBPS)
                     .withGetObjectHedging(getObjectHedging);
             return new S3Client(options);
         }
