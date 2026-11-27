@@ -424,7 +424,7 @@ public class S3ClientOptions {
     /**
      * Turns GET hedging on or off. A hedge cancels a part request of a {@code GET_OBJECT} meta request
      * that gets no response before an adaptive first-byte timeout, and sends the request again at once
-     * on a new connection. GET hedging uses the same adaptive timeout as the UploadPart requests, with
+     * on another connection. GET hedging uses the same adaptive timeout as the UploadPart requests, with
      * separate samples. The client calculates the timeout from the time to first byte of successful part
      * requests, and a budget keeps the hedges below approximately 5% of the requests.
      *
