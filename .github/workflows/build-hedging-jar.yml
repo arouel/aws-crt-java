@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CRT_VERSION: 0.50.2-hedging.2
+  CRT_VERSION: 0.50.2-hedging.3
 
 jobs:
   native:

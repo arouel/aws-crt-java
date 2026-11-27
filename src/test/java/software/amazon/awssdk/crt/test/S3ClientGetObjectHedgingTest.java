@@ -3,7 +3,9 @@ package software.amazon.awssdk.crt.test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import java.lang.reflect.Field;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +21,7 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import software.amazon.awssdk.crt.CRT;
+import software.amazon.awssdk.crt.CrtRuntimeException;
 import software.amazon.awssdk.crt.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.crt.http.HttpHeader;
 import software.amazon.awssdk.crt.http.HttpRequest;
@@ -44,6 +47,7 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
     private static final String MOCK_SERVER_PROPERTY = "aws.crt.s3.mock_server";
     private static final String REGION = "us-west-2";
     private static final int AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT = 2092;
+    private static final int AWS_ERROR_S3_METRIC_DATA_NOT_AVAILABLE = 14358;
 
     /* Both routes serve a 256 KiB object, which the client gets in 4 parts of 64 KiB. */
     private static final long PART_SIZE = 64 * 1024;
@@ -84,6 +88,25 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
         assertEquals(Boolean.FALSE, new S3ClientOptions().withGetObjectHedging(false).getGetObjectHedging());
     }
 
+    /*
+     * The CRT records the end of the send after the socket write completes. A fast server can answer before that.
+     * The native code sets the timestamps, so this test sets them with reflection.
+     */
+    @Test
+    public void testResponseToFirstByteDuration() throws Exception {
+        S3RequestMetrics metrics = new S3RequestMetrics();
+        assertMetricDataNotAvailable(metrics);
+
+        setTimestamp(metrics, "sendEndTimestampNs", 1_000);
+        assertMetricDataNotAvailable(metrics);
+
+        setTimestamp(metrics, "receiveStartTimestampNs", 1_250);
+        assertEquals(250, metrics.getResponseToFirstByteDurationNs());
+
+        setTimestamp(metrics, "receiveStartTimestampNs", 999);
+        assertEquals(0, metrics.getResponseToFirstByteDurationNs());
+    }
+
     @Test
     public void testGetObjectHedgingSendsSlowPartAgain() throws Exception {
         URI endpoint = mockServerEndpoint();
@@ -100,8 +123,13 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
             for (S3RequestMetrics attempt : download.attempts) {
                 if (attempt.getErrorCode() == AWS_ERROR_HTTP_RESPONSE_FIRST_BYTE_TIMEOUT) {
                     numHedges++;
+                    assertMetricDataNotAvailable(attempt);
                 } else {
                     assertEquals(CRT.awsErrorName(attempt.getErrorCode()), 0, attempt.getErrorCode());
+                    long responseToFirstByteNs = attempt.getResponseToFirstByteDurationNs();
+                    assertTrue(responseToFirstByteNs >= 0);
+                    assertTrue(responseToFirstByteNs <= attempt.getTimeToFirstByte());
+                    assertTrue(responseToFirstByteNs < TimeUnit.MILLISECONDS.toNanos(MIN_DEADLINE_MS));
                 }
                 if (attempt.getRetryCount() == 0) {
                     assertDeadline(attempt.getFirstByteTimeoutMs());
@@ -126,11 +154,17 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
             Download download = download(client, endpoint, SLOW_PART_PATH);
 
             assertTrue("download took " + download.durationMs + " ms", download.durationMs >= SLOW_ANSWER_MS);
+            long slowestResponseToFirstByteNs = 0;
             for (S3RequestMetrics attempt : download.attempts) {
                 assertEquals(CRT.awsErrorName(attempt.getErrorCode()), 0, attempt.getErrorCode());
                 assertEquals(0, attempt.getRetryCount());
                 assertEquals(0, attempt.getFirstByteTimeoutMs());
+                slowestResponseToFirstByteNs = Math.max(slowestResponseToFirstByteNs,
+                        attempt.getResponseToFirstByteDurationNs());
             }
+            // The mock server waits before it sends the first byte of the slow part.
+            assertTrue("slowest response to first byte is " + slowestResponseToFirstByteNs + " ns",
+                    slowestResponseToFirstByteNs >= TimeUnit.MILLISECONDS.toNanos(SLOW_ANSWER_MS) * 9 / 10);
         }
     }
 
@@ -144,6 +178,21 @@ public class S3ClientGetObjectHedgingTest extends CrtTestFixture {
     private static void assertDeadline(long firstByteTimeoutMs) {
         assertTrue("first-byte timeout is " + firstByteTimeoutMs + " ms",
                 firstByteTimeoutMs >= MIN_DEADLINE_MS && firstByteTimeoutMs <= MAX_DEADLINE_MS);
+    }
+
+    private static void assertMetricDataNotAvailable(S3RequestMetrics metrics) {
+        try {
+            metrics.getResponseToFirstByteDurationNs();
+            fail("getResponseToFirstByteDurationNs() gave a value");
+        } catch (CrtRuntimeException e) {
+            assertEquals(AWS_ERROR_S3_METRIC_DATA_NOT_AVAILABLE, e.errorCode);
+        }
+    }
+
+    private static void setTimestamp(S3RequestMetrics metrics, String field, long value) throws Exception {
+        Field timestamp = S3RequestMetrics.class.getDeclaredField(field);
+        timestamp.setAccessible(true);
+        timestamp.setLong(metrics, value);
     }
 
     private static S3Client createClient(boolean getObjectHedging) {

@@ -176,6 +176,21 @@ public class S3RequestMetrics {
         return this.receiveEndTimestampNs - this.startTimestampNs;
     }
 
+    /**
+     * @return the time from the end of the request send to the first byte of the response, in nanoseconds. This is
+     * the time that the first-byte timeout limits (see {@link #getFirstByteTimeoutMs}). Unlike
+     * {@link #getTimeToFirstByte}, it does not include the signing, the wait for a connection, and the send of the
+     * request body. The CRT records the end of the send after the socket write completes. If the response started
+     * before that, the value is 0.
+     * @throws CrtRuntimeException if the attempt sent no full request or got no response
+     */
+    public long getResponseToFirstByteDurationNs() throws CrtRuntimeException {
+        if (this.sendEndTimestampNs == -1 || this.receiveStartTimestampNs == -1) {
+            throw new CrtRuntimeException(AWS_ERROR_S3_METRIC_DATA_NOT_AVAILABLE);
+        }
+        return Math.max(0, this.receiveStartTimestampNs - this.sendEndTimestampNs);
+    }
+
     // Please use CRT.awsIsTransientError() to identify transient errors
     public int getErrorCode() {
         return this.errorCode;

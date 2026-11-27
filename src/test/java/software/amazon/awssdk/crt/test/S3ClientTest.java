@@ -2010,6 +2010,7 @@ public class S3ClientTest extends CrtTestFixture {
         public int errorCode;
         public long timeToFirstByte;
         public long timeToLastByte;
+        public long responseToFirstByteDurationNs;
         public long signingDurationNs;
         public long backoffDelayDurationNs;
         public long serviceCallDurationNs;
@@ -2048,6 +2049,11 @@ public class S3ClientTest extends CrtTestFixture {
                 this.timeToLastByte = metrics.getTimeToLastByte();
             } catch (Exception e) {
                 this.timeToLastByte = -1;
+            }
+            try {
+                this.responseToFirstByteDurationNs = metrics.getResponseToFirstByteDurationNs();
+            } catch (Exception e) {
+                this.responseToFirstByteDurationNs = -1;
             }
             try {
                 this.signingDurationNs = metrics.getSigningDurationNs();
@@ -2092,6 +2098,9 @@ public class S3ClientTest extends CrtTestFixture {
             Assert.assertTrue("Time to first byte should be > 0", timeToFirstByte > 0);
             Assert.assertTrue("Time to last byte should be > 0", timeToLastByte > 0);
             Assert.assertTrue("Time to last byte should be >= time to first byte", timeToLastByte >= timeToFirstByte);
+            Assert.assertTrue("Response to first byte duration should be >= 0", responseToFirstByteDurationNs >= 0);
+            Assert.assertTrue("Response to first byte duration should be <= time to first byte",
+                    responseToFirstByteDurationNs <= timeToFirstByte);
             Assert.assertTrue("Signing duration should be >= 0", signingDurationNs >= -1);
             Assert.assertTrue("Delay duration should be >= 0", backoffDelayDurationNs >= -1);
             Assert.assertTrue("Service call duration should be >= 0", serviceCallDurationNs >= -1);
